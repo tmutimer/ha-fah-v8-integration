@@ -32,6 +32,7 @@ async def async_setup_entry(
         FAHCPUSensor(coordinator, entry),
         FAHGPUSensor(coordinator, entry),
         FAHWorkUnitsSensor(coordinator, entry),
+        FAHWUProgressSensor(coordinator, entry),
     ]
 
     async_add_entities(entities)
@@ -260,8 +261,43 @@ class FAHWorkUnitsSensor(FAHBaseSensor):
                     "progress": round(u.get("progress", 0) * 100, 1),
                     "state": u.get("state"),
                     "ppd": u.get("ppd", 0),
+                    "eta": u.get("eta"),
+                    "tpf": u.get("tpf"),
+                    "credit": (u.get("assignment") or {}).get("credit"),
+                    "deadline": (u.get("assignment") or {}).get("deadline"),
+                    "timeout": (u.get("assignment") or {}).get("timeout"),
                 }
                 for u in units
                 if u is not None
             ]
         }
+
+
+class FAHWUProgressSensor(FAHBaseSensor):
+    """Sensor for primary work unit progress."""
+
+    _attr_icon = "mdi:progress-clock"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_translation_key = "wu_progress"
+
+    def __init__(
+        self,
+        coordinator: FAHDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{self._machine_id}_wu_progress"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return progress of the primary active work unit."""
+        if not self.coordinator.data:
+            return None
+        units = [u for u in (self.coordinator.data.get("units") or []) if u is not None]
+        if not units:
+            return None
+        active = [u for u in units if u.get("state") == "RUN"] or units
+        primary = max(active, key=lambda u: u.get("ppd", 0))
+        return round(primary.get("progress", 0) * 100, 1)

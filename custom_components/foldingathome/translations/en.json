@@ -35,6 +35,9 @@
       },
       "work_units": {
         "name": "Work Units"
+      },
+      "wu_progress": {
+        "name": "WU Progress"
       }
     },
     "switch": {

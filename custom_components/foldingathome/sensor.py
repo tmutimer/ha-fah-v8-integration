@@ -258,7 +258,7 @@ class FAHWorkUnitsSensor(FAHBaseSensor):
             "units": [
                 {
                     "project": (u.get("assignment") or {}).get("project"),
-                    "progress": round(u.get("progress", 0) * 100, 1),
+                    "progress": round(u.get("wu_progress", 0) * 100, 1),
                     "state": u.get("state"),
                     "ppd": u.get("ppd", 0),
                     "eta": u.get("eta"),
@@ -300,4 +300,4 @@ class FAHWUProgressSensor(FAHBaseSensor):
             return None
         active = [u for u in units if u.get("state") == "RUN"] or units
         primary = max(active, key=lambda u: u.get("ppd", 0))
-        return round(primary.get("progress", 0) * 100, 1)
+        return round(primary.get("wu_progress", 0) * 100, 1)

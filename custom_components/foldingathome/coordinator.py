@@ -187,6 +187,7 @@ class FAHDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     data = msg.data
                     if data == "ping":
                         continue
+                    _LOGGER.debug("FAH %s raw message: %.500s", self.host, data)
                     try:
                         parsed = json.loads(data)
                         if parsed is None:

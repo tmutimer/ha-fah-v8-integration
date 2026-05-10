@@ -12,6 +12,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     DOMAIN,
@@ -151,11 +152,11 @@ class FAHConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _test_donor_connection(self, username: str) -> dict[str, Any]:
         """Verify donor username exists on FAH stats and return their data."""
         url = DONOR_STATS_URL.format(username)
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 404:
-                    raise ValueError(f"Donor '{username}' not found")
-                resp.raise_for_status()
-                return await resp.json()
+        session = async_get_clientsession(self.hass)
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
+            if resp.status == 404:
+                raise ValueError(f"Donor '{username}' not found")
+            resp.raise_for_status()
+            return await resp.json()

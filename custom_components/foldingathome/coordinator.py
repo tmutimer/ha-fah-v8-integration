@@ -9,9 +9,9 @@ from typing import Any
 
 import aiohttp
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, WEBSOCKET_PATH, UPDATE_INTERVAL, WEBSOCKET_TIMEOUT
+from .const import DOMAIN, WEBSOCKET_PATH, UPDATE_INTERVAL, WEBSOCKET_TIMEOUT, DONOR_STATS_URL, DONOR_UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -301,3 +301,36 @@ class FAHDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.error("FAH %s: failed to send command: %s", self.host, err)
                 self._connected = False
                 self._schedule_reconnect()
+
+
+class FAHDonorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator for FAH donor stats via the public stats API."""
+
+    def __init__(self, hass: HomeAssistant, username: str) -> None:
+        """Initialize coordinator."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_donor_{username}",
+            update_interval=timedelta(seconds=DONOR_UPDATE_INTERVAL),
+        )
+        self.username = username
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch donor stats from the FAH public API."""
+        url = DONOR_STATS_URL.format(self.username)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    resp.raise_for_status()
+                    return await resp.json()
+        except aiohttp.ClientResponseError as err:
+            raise UpdateFailed(
+                f"FAH stats API returned {err.status} for donor '{self.username}'"
+            ) from err
+        except aiohttp.ClientError as err:
+            raise UpdateFailed(
+                f"Error fetching donor stats for '{self.username}': {err}"
+            ) from err

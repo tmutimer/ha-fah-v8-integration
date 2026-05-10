@@ -13,14 +13,29 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, DEFAULT_PORT, WEBSOCKET_PATH, WEBSOCKET_TIMEOUT
+from .const import (
+    DOMAIN,
+    DEFAULT_PORT,
+    WEBSOCKET_PATH,
+    WEBSOCKET_TIMEOUT,
+    ENTRY_TYPE_MACHINE,
+    ENTRY_TYPE_DONOR,
+    CONF_USERNAME,
+    DONOR_STATS_URL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
+STEP_MACHINE_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
         vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
+    }
+)
+
+STEP_DONOR_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_USERNAME): str,
     }
 )
 
@@ -33,18 +48,25 @@ class FAHConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle user step."""
+        """Show menu to choose machine or donor stats."""
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["machine", "donor"],
+        )
+
+    async def async_step_machine(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle local FAH machine setup."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             host = user_input[CONF_HOST]
             port = user_input.get(CONF_PORT, DEFAULT_PORT)
 
-            # Test connection
             try:
-                machine_info = await self._test_connection(host, port)
+                machine_info = await self._test_machine_connection(host, port)
 
-                # Use machine ID as unique identifier
                 machine_id = machine_info.get("id")
                 if machine_id:
                     await self.async_set_unique_id(machine_id)
@@ -55,6 +77,7 @@ class FAHConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_HOST: host,
                         CONF_PORT: port,
+                        "entry_type": ENTRY_TYPE_MACHINE,
                         "machine_id": machine_id,
                         "machine_name": machine_info.get("mach_name", "FAH Client"),
                     },
@@ -64,17 +87,53 @@ class FAHConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except aiohttp.ClientError:
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
-                _LOGGER.exception("Unexpected error during config flow")
+                _LOGGER.exception("Unexpected error during machine config flow")
                 errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
+            step_id="machine",
+            data_schema=STEP_MACHINE_DATA_SCHEMA,
             errors=errors,
         )
 
-    async def _test_connection(self, host: str, port: int) -> dict[str, Any]:
-        """Test connection and return machine info."""
+    async def async_step_donor(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle donor stats setup."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            username = user_input[CONF_USERNAME].strip()
+
+            try:
+                await self._test_donor_connection(username)
+            except ValueError:
+                errors["base"] = "donor_not_found"
+            except aiohttp.ClientError:
+                errors["base"] = "cannot_connect"
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error during donor config flow")
+                errors["base"] = "unknown"
+
+            if not errors:
+                await self.async_set_unique_id(f"donor_{username.lower()}")
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=f"{username} (Donor Stats)",
+                    data={
+                        "entry_type": ENTRY_TYPE_DONOR,
+                        CONF_USERNAME: username,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="donor",
+            data_schema=STEP_DONOR_DATA_SCHEMA,
+            errors=errors,
+        )
+
+    async def _test_machine_connection(self, host: str, port: int) -> dict[str, Any]:
+        """Test connection to a local FAH client and return machine info."""
         url = f"ws://{host}:{port}{WEBSOCKET_PATH}"
 
         async with aiohttp.ClientSession() as session:
@@ -88,3 +147,15 @@ class FAHConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return data.get("info") or {}
 
         raise Exception("No data received from FAH client")
+
+    async def _test_donor_connection(self, username: str) -> dict[str, Any]:
+        """Verify donor username exists on FAH stats and return their data."""
+        url = DONOR_STATS_URL.format(username)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 404:
+                    raise ValueError(f"Donor '{username}' not found")
+                resp.raise_for_status()
+                return await resp.json()

@@ -14,8 +14,8 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .coordinator import FAHDataUpdateCoordinator
+from .const import DOMAIN, ENTRY_TYPE_DONOR, CONF_USERNAME
+from .coordinator import FAHDataUpdateCoordinator, FAHDonorCoordinator
 
 
 async def async_setup_entry(
@@ -24,22 +24,33 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensors."""
-    coordinator: FAHDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities: list[SensorEntity] = [
-        FAHStatusSensor(coordinator, entry),
-        FAHPPDSensor(coordinator, entry),
-        FAHCPUSensor(coordinator, entry),
-        FAHGPUSensor(coordinator, entry),
-        FAHWorkUnitsSensor(coordinator, entry),
-        FAHWUProgressSensor(coordinator, entry),
-    ]
+    if entry.data.get("entry_type") == ENTRY_TYPE_DONOR:
+        entities: list[SensorEntity] = [
+            FAHDonorWUSensor(coordinator, entry),
+            FAHDonorScoreSensor(coordinator, entry),
+            FAHDonorRankSensor(coordinator, entry),
+        ]
+    else:
+        entities = [
+            FAHStatusSensor(coordinator, entry),
+            FAHPPDSensor(coordinator, entry),
+            FAHCPUSensor(coordinator, entry),
+            FAHGPUSensor(coordinator, entry),
+            FAHWorkUnitsSensor(coordinator, entry),
+            FAHWUProgressSensor(coordinator, entry),
+        ]
 
     async_add_entities(entities)
 
 
+# ---------------------------------------------------------------------------
+# Machine sensors
+# ---------------------------------------------------------------------------
+
 class FAHBaseSensor(CoordinatorEntity[FAHDataUpdateCoordinator], SensorEntity):
-    """Base class for FAH sensors."""
+    """Base class for FAH machine sensors."""
 
     _attr_has_entity_name = True
 
@@ -51,9 +62,6 @@ class FAHBaseSensor(CoordinatorEntity[FAHDataUpdateCoordinator], SensorEntity):
         """Initialize sensor."""
         super().__init__(coordinator)
         self._entry = entry
-
-        # Use machine_id from entry data (set during config flow) for stable identification
-        # Fall back to entry.unique_id (also the machine_id) or entry_id as last resort
         self._machine_id = entry.data.get("machine_id") or entry.unique_id or entry.entry_id
         self._machine_name = entry.data.get("machine_name", "FAH Client")
 
@@ -76,21 +84,14 @@ class FAHStatusSensor(FAHBaseSensor):
     _attr_icon = "mdi:protein"
     _attr_translation_key = "status"
 
-    def __init__(
-        self,
-        coordinator: FAHDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize."""
+    def __init__(self, coordinator: FAHDataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._machine_id}_status"
 
     @property
     def native_value(self) -> str:
-        """Return status."""
         if not self.coordinator.data:
             return "unknown"
-        # State is in the default group's config, not top-level config
         groups = self.coordinator.data.get("groups") or {}
         default_group = groups.get("") or {}
         config = default_group.get("config") or {}
@@ -109,18 +110,12 @@ class FAHPPDSensor(FAHBaseSensor):
     _attr_native_unit_of_measurement = "PPD"
     _attr_translation_key = "ppd"
 
-    def __init__(
-        self,
-        coordinator: FAHDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize."""
+    def __init__(self, coordinator: FAHDataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._machine_id}_ppd"
 
     @property
     def native_value(self) -> int:
-        """Return total PPD."""
         if not self.coordinator.data:
             return 0
         units = self.coordinator.data.get("units") or []
@@ -134,21 +129,14 @@ class FAHCPUSensor(FAHBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "active_cpus"
 
-    def __init__(
-        self,
-        coordinator: FAHDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize."""
+    def __init__(self, coordinator: FAHDataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._machine_id}_cpus"
 
     @property
     def native_value(self) -> int:
-        """Return active CPU count."""
         if not self.coordinator.data:
             return 0
-        # CPUs allocated is in the default group's config
         groups = self.coordinator.data.get("groups") or {}
         default_group = groups.get("") or {}
         config = default_group.get("config") or {}
@@ -156,7 +144,6 @@ class FAHCPUSensor(FAHBaseSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional attributes."""
         if not self.coordinator.data:
             return {}
         info = self.coordinator.data.get("info") or {}
@@ -170,31 +157,22 @@ class FAHGPUSensor(FAHBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "active_gpus"
 
-    def __init__(
-        self,
-        coordinator: FAHDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize."""
+    def __init__(self, coordinator: FAHDataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._machine_id}_gpus"
 
     @property
     def native_value(self) -> int:
-        """Return active GPU count."""
         if not self.coordinator.data:
             return 0
-        # GPUs enabled is in the default group's config
         groups = self.coordinator.data.get("groups") or {}
         default_group = groups.get("") or {}
         config = default_group.get("config") or {}
         gpus = config.get("gpus") or {}
-        # Count enabled GPUs
         return sum(1 for gpu in gpus.values() if gpu and gpu.get("enabled", False))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return GPU details."""
         if not self.coordinator.data:
             return {"total_gpus": 0, "gpus": []}
 
@@ -232,25 +210,18 @@ class FAHWorkUnitsSensor(FAHBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "work_units"
 
-    def __init__(
-        self,
-        coordinator: FAHDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize."""
+    def __init__(self, coordinator: FAHDataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._machine_id}_work_units"
 
     @property
     def native_value(self) -> int:
-        """Return WU count."""
         if not self.coordinator.data:
             return 0
         return len(self.coordinator.data.get("units") or [])
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return WU details."""
         if not self.coordinator.data:
             return {"units": []}
         units = self.coordinator.data.get("units") or []
@@ -281,18 +252,12 @@ class FAHWUProgressSensor(FAHBaseSensor):
     _attr_native_unit_of_measurement = "%"
     _attr_translation_key = "wu_progress"
 
-    def __init__(
-        self,
-        coordinator: FAHDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize."""
+    def __init__(self, coordinator: FAHDataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._machine_id}_wu_progress"
 
     @property
     def native_value(self) -> float | None:
-        """Return progress of the primary active work unit."""
         if not self.coordinator.data:
             return None
         units = [u for u in (self.coordinator.data.get("units") or []) if u is not None]
@@ -301,3 +266,98 @@ class FAHWUProgressSensor(FAHBaseSensor):
         active = [u for u in units if u.get("state") == "RUN"] or units
         primary = max(active, key=lambda u: u.get("ppd", 0))
         return round(primary.get("wu_progress", 0) * 100, 1)
+
+
+# ---------------------------------------------------------------------------
+# Donor sensors
+# ---------------------------------------------------------------------------
+
+class FAHDonorBaseSensor(CoordinatorEntity[FAHDonorCoordinator], SensorEntity):
+    """Base class for FAH donor sensors."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: FAHDonorCoordinator, entry: ConfigEntry) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._username = entry.data[CONF_USERNAME]
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"donor_{self._username.lower()}")},
+            name=f"{self._username}",
+            manufacturer="Folding@home",
+            model="Donor Account",
+            configuration_url=f"https://stats.foldingathome.org/donor/{self._username}",
+        )
+
+
+class FAHDonorWUSensor(FAHDonorBaseSensor):
+    """Sensor for total work units completed by a donor."""
+
+    _attr_icon = "mdi:check-circle-outline"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_translation_key = "donor_work_units"
+
+    def __init__(self, coordinator: FAHDonorCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"donor_{self._username.lower()}_wus"
+
+    @property
+    def native_value(self) -> int | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wus")
+
+
+class FAHDonorScoreSensor(FAHDonorBaseSensor):
+    """Sensor for total score/credit earned by a donor."""
+
+    _attr_icon = "mdi:trophy-outline"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "points"
+    _attr_translation_key = "donor_score"
+
+    def __init__(self, coordinator: FAHDonorCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"donor_{self._username.lower()}_score"
+
+    @property
+    def native_value(self) -> int | None:
+        if not self.coordinator.data:
+            return None
+        # API may return either field name
+        return self.coordinator.data.get("credit") or self.coordinator.data.get("score")
+
+
+class FAHDonorRankSensor(FAHDonorBaseSensor):
+    """Sensor for global donor rank."""
+
+    _attr_icon = "mdi:podium"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "donor_rank"
+
+    def __init__(self, coordinator: FAHDonorCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"donor_{self._username.lower()}_rank"
+
+    @property
+    def native_value(self) -> int | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("rank")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coordinator.data:
+            return {}
+        attrs: dict[str, Any] = {}
+        # Number of donors active in the last 7 days — useful rank context
+        if (active_7 := self.coordinator.data.get("active_7")) is not None:
+            attrs["active_donors_7_days"] = active_7
+        if teams := self.coordinator.data.get("teams"):
+            attrs["teams"] = teams
+        return attrs

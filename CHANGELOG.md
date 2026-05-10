@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0]
+
+### Added
+- **Donor / User Stats** — a new config entry type that tracks your global Folding@home donor stats via the public FAH stats API, independent of any local FAH client
+  - **Work Units Completed** sensor — lifetime total WUs, tracked as a cumulative counter so HA graphs it correctly over time
+  - **Total Score** sensor — lifetime points earned
+  - **Global Rank** sensor — your rank among all donors, with `active_donors_7_days` and `teams` as attributes for context
+- Config flow now opens with a menu to choose between "Local FAH Machine" and "Donor / User Stats"
+- Donor username is validated against the FAH stats API during setup, with a clear error if the username isn't found
+- Stats poll hourly (matching FAH's update cadence); entities show as unavailable if the API is unreachable
+
 ## [1.1.0]
 
 ### Added

@@ -2,21 +2,37 @@
   "config": {
     "step": {
       "user": {
+        "title": "Folding@home",
+        "description": "What would you like to add?",
+        "menu_options": {
+          "machine": "Local FAH Machine",
+          "donor": "Donor / User Stats"
+        }
+      },
+      "machine": {
         "title": "Connect to Folding@home v8 Client",
         "description": "Enter the connection details for your Folding@home v8 client.",
         "data": {
           "host": "Host",
           "port": "Port"
         }
+      },
+      "donor": {
+        "title": "Donor / User Stats",
+        "description": "Enter your Folding@home username to track your global stats. Stats update approximately every hour.",
+        "data": {
+          "username": "Username"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the Folding@home v8 client. Ensure it is running and accessible.",
+      "cannot_connect": "Unable to connect. Check your network and try again.",
       "timeout": "Connection timed out. Ensure the Folding@home v8 client is running and the port is correct.",
+      "donor_not_found": "Username not found on Folding@home stats. Check the spelling and try again.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "This Folding@home v8 client is already configured."
+      "already_configured": "This Folding@home entry is already configured."
     }
   },
   "entity": {
@@ -38,6 +54,15 @@
       },
       "wu_progress": {
         "name": "WU Progress"
+      },
+      "donor_work_units": {
+        "name": "Work Units Completed"
+      },
+      "donor_score": {
+        "name": "Total Score"
+      },
+      "donor_rank": {
+        "name": "Global Rank"
       }
     },
     "switch": {
